@@ -5,14 +5,14 @@ import (
 )
 
 type Feed struct {
-	id int64
-	feed_url string
-	site_url string
-	title string
-	etag string
-	last_modified string
-	last_fetched_at *time.Time
-	last_error string 
-	created_at *time.Time
-	updated_at *time.Time
+	ID int64
+	FeedURL string
+	SiteURL string
+	Title string
+	ETag string
+	LastModified string
+	LastFetchedAt *time.Time
+	LastError *string 
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
