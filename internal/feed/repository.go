@@ -7,6 +7,8 @@ import (
 	"errors"
 )
 
+var ErrNotFound = errors.New("feed not found")
+
 type Repository struct {
 	db *sql.DB
 }
@@ -52,7 +54,6 @@ func (r *Repository) CreateFeed(ctx context.Context, f *Feed) error {
 
 func (r *Repository) GetFeedByID(ctx context.Context, id int64) (*Feed, error) {
 	var f Feed
-	var ErrNotFound = errors.New("feed not found")
 	query := `
 		SELECT id, 
 		       feed_url,
