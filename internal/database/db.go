@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"database/sql"
 	_ "modernc.org/sqlite"
+	_ "embed"
 )
 
+//go:embed schema.sql
+var schemaSQL string
 
 func Open(dbPath string) (*sql.DB, error) {
 
@@ -38,4 +41,13 @@ func Open(dbPath string) (*sql.DB, error) {
 
 	return db, nil
 
+}
+
+func Migrate(db *sql.DB) error {
+	_, err := db.Exec(schemaSQL)
+	if err != nil {
+		return fmt.Errorf("failed to execute migration: %w", err)
+	}
+
+	return nil
 }

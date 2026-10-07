@@ -16,6 +16,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize db, %v", err)
 	}
+	err = database.Migrate(db)
+	if err != nil {
+		log.Fatalf("failed to migrate db, %v", err)
+	}
 	defer db.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
