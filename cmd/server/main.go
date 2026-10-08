@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Tomassalgueiro/gorss/internal/article"
 	"github.com/Tomassalgueiro/gorss/internal/config"
 	"github.com/Tomassalgueiro/gorss/internal/database"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
@@ -34,8 +35,9 @@ func main() {
 	defer db.Close()
 
 	repo := feed.NewRepository(db)
+	articleRepo := article.NewReposiroty(db)
 	fetcher := parser.NewFetcher()
-	h := server.NewHandler(repo, fetcher)
+	h := server.NewHandler(repo, articleRepo, fetcher)
 	mux := h.Routes()
 
 	log.Println("Service starting...")

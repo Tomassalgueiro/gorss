@@ -8,18 +8,21 @@ import (
 	"log"
 	"strings"
 
+	"github.com/Tomassalgueiro/gorss/internal/article"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
 	"github.com/Tomassalgueiro/gorss/internal/parser"
 )
 
 type Handler struct {
 	feedRepo *feed.Repository
+	articleRepo *article.Repository
 	fetcher *parser.Fetcher
 }
 
-func NewHandler(feedRepo *feed.Repository, fetcher *parser.Fetcher) *Handler {
+func NewHandler(feedRepo *feed.Repository, articleRepo *article.Repository, fetcher *parser.Fetcher) *Handler {
 	return &Handler{
 		feedRepo: feedRepo,
+		articleRepo: articleRepo,
 		fetcher: fetcher,
 	}
 }
@@ -77,7 +80,25 @@ func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save feed", http.StatusInternalServerError)
 		return
 	}
-	
+
+	if len(parsed.Items) > 0 {
+		articles := make([]article.Article, 0, len(parsed.Items))
+		for _, item := range parsed.Items {
+			articles = append(articles, article.Article{
+				FeedID: f.ID,
+				GUID: item.GUID,
+				URL: item.URL,
+				Title: item.Title,
+				Content: item.Content,
+				PublishedAt: item.PublishedAt,
+			})
+		}
+
+		if err := h.articleRepo.CreateArticles(r.Context(), articles); err != nil {
+			log.Printf("failed to save articles for feed %d: %v", f.ID, err)	
+		}
+	}
+
 	WriteJSON(w, http.StatusCreated, f)
 }
 
@@ -116,6 +137,49 @@ func (h* Handler) getFeed(w http.ResponseWriter, r *http.Request) {
 
 	WriteJSON(w, http.StatusOK, f)
 
+}
+
+func (h *Handler) listFeedArticles(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid feed id", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := h.feedRepo.GetFeedByID(r.Context(), id); err != nil {
+		if errors.Is(err, feed.ErrNotFound){
+			http.Error(w, "feed not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to get feed", http.StatusInternalServerError)
+		return
+	}
+
+	limit := 50
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsedLimit, err := strconv.Atoi(l); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		} 
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsedOffset, err := strconv.Atoi(o); err == nil && parsedOffset > 0 {
+			offset = parsedOffset	
+		}
+	}
+
+	articles, err := h.articleRepo.ListByFeed(r.Context(), id, limit, offset)
+	if err != nil {
+		http.Error(w, "failed to list articles", http.StatusInternalServerError)
+		return
+	}
+
+	if articles == nil {
+		articles = []*article.Article{}
+	}
+
+	WriteJSON(w, http.StatusOK, articles)
 }
 
 func WriteJSON(w http.ResponseWriter, status int, data any) {
