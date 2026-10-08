@@ -45,7 +45,7 @@ type atomEntry struct {
 	Title     string     `xml:"title"`
 	Links     []atomLink `xml:"link"`
 	Summary   string     `xml:"summary"`
-	Content   string     `xml:"content"`
+	Content   string     `xml:",innerxml"`
 	Updated   string     `xml:"updated"`
 	Published string     `xml:"published"`
 }

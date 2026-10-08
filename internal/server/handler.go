@@ -63,6 +63,7 @@ func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid feed format"+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	log.Printf("[DEBUG] Parsed title: %q, total items found: %d", parsed.Title, len(parsed.Items))
 
 	f := &feed.Feed{
 		FeedURL: req.FeedURL,
@@ -96,7 +97,11 @@ func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 
 		if err := h.articleRepo.CreateArticles(r.Context(), articles); err != nil {
 			log.Printf("failed to save articles for feed %d: %v", f.ID, err)	
+		} else {
+			log.Printf("[DEBUG] Saved %d aricles for feed %d", len(articles), f.ID)
 		}
+	} else {
+		log.Printf("[WARN] parsed.Items was empty for %s", req.FeedURL)
 	}
 
 	WriteJSON(w, http.StatusCreated, f)
@@ -201,6 +206,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/feeds", h.createFeed)
 	mux.HandleFunc("GET /v1/feeds", h.listFeeds)
 	mux.HandleFunc("GET /v1/feeds/{id}", h.getFeed)
+	mux.HandleFunc("GET /v1/feeds/{id}/articles", h.listFeedArticles)
 
 	return mux
 }
