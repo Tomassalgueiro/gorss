@@ -5,22 +5,29 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"log"
 	"strings"
 
 	"github.com/Tomassalgueiro/gorss/internal/feed"
+	"github.com/Tomassalgueiro/gorss/internal/parser"
 )
 
 type Handler struct {
 	feedRepo *feed.Repository
+	fetcher *parser.Fetcher
+}
+
+func NewHandler(feedRepo *feed.Repository, fetcher *parser.Fetcher) *Handler {
+	return &Handler{
+		feedRepo: feedRepo,
+		fetcher: fetcher,
+	}
 }
 
 type createFeedRequest struct {
 	FeedURL string `json:"feed_url"`
 }
 
-func NewHandler(feedRepo *feed.Repository) *Handler {
-	return &Handler{feedRepo: feedRepo}
-}
 
 func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 	var req createFeedRequest
@@ -36,19 +43,41 @@ func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f := &feed.Feed{
-		FeedURL: req.FeedURL,
-	}
-
-	if err := h.feedRepo.CreateFeed(r.Context(), f); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			http.Error(w, "feed already exists", http.StatusConflict)
-			return
-		}
-		http.Error(w, "failed to create feed", http.StatusInternalServerError)
+	resp, err := h.fetcher.Fetch(r.Context(), req.FeedURL, "", "")
+	if err != nil {
+		log.Printf("fetch feed failed for %s: %v", req.FeedURL, err)
+		http.Error(w, "failed to reach remote feed URL", http.StatusBadGateway)
 		return
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "feed returned non-200 status code", http.StatusBadGateway)
+		return
+	}
+
+	parsed, err := parser.Parse(resp.Body)
+	if err != nil {
+		http.Error(w, "invalid feed format"+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	f := &feed.Feed{
+		FeedURL: req.FeedURL,
+		SiteURL: parsed.SiteURL,
+		Title: parsed.Title,
+		ETag: resp.ETag,
+		LastModified: resp.LastModified,
+	}
+
+	if err := h.feedRepo.CreateFeed(r.Context(), f); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") { 
+			http.Error(w, "feed already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to save feed", http.StatusInternalServerError)
+		return
+	}
+	
 	WriteJSON(w, http.StatusCreated, f)
 }
 

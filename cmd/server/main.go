@@ -13,6 +13,7 @@ import (
 	"github.com/Tomassalgueiro/gorss/internal/config"
 	"github.com/Tomassalgueiro/gorss/internal/database"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
+	"github.com/Tomassalgueiro/gorss/internal/parser"
 	"github.com/Tomassalgueiro/gorss/internal/server"
 )
 
@@ -33,7 +34,8 @@ func main() {
 	defer db.Close()
 
 	repo := feed.NewRepository(db)
-	h := server.NewHandler(repo)
+	fetcher := parser.NewFetcher()
+	h := server.NewHandler(repo, fetcher)
 	mux := h.Routes()
 
 	log.Println("Service starting...")
