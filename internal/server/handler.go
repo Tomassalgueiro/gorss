@@ -27,10 +27,14 @@ func NewHandler(feedRepo *feed.Repository, articleRepo *article.Repository, fetc
 	}
 }
 
+type updateArticleRequest struct {
+	IsRead    *bool `json:"is_read"`
+	IsStarred *bool `json:"is_starred"`
+}
+
 type createFeedRequest struct {
 	FeedURL string `json:"feed_url"`
 }
-
 
 func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 	var req createFeedRequest
@@ -203,10 +207,69 @@ func ReadJSON (r *http.Request, dst any) error {
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /v1/feeds", h.createFeed)
 	mux.HandleFunc("GET /v1/feeds", h.listFeeds)
 	mux.HandleFunc("GET /v1/feeds/{id}", h.getFeed)
 	mux.HandleFunc("GET /v1/feeds/{id}/articles", h.listFeedArticles)
+	mux.HandleFunc("POST /v1/feeds", h.createFeed)
+	mux.HandleFunc("POST /v1/articles/{id}/mark-all-read", h.markFeedAsRead)
+	mux.HandleFunc("PATCH /v1/articles/{id}", h.updateArticle)
 
 	return mux
+}
+
+func (h *Handler) updateArticle(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid article id", http.StatusBadRequest)
+		return
+	}
+
+	var req updateArticleRequest
+	if err := ReadJSON(r, &req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.IsRead == nil && req.IsStarred == nil {
+		http.Error(w, "at least one of is_read or is_starred must be provided", http.StatusBadRequest)
+		return
+	}
+
+	updated, err := h.articleRepo.UpdateStatus(r.Context(), id, req.IsRead, req.IsStarred)
+	if err != nil {
+		if errors.Is(err, article.ErrNotFound) {
+			http.Error(w, "article not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update article", http.StatusInternalServerError)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) markFeedAsRead(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid feed id", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := h.feedRepo.GetFeedByID(r.Context(), id); err != nil {
+		if errors.Is(err, feed.ErrNotFound) {
+			http.Error(w, "feed not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to get feed", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.articleRepo.MarkFeedAsRead(r.Context(), id); err != nil {
+		http.Error(w, "failed to mark feed articles as read", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

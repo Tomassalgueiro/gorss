@@ -3,6 +3,7 @@ package article
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"errors"
 	"fmt"
 )
@@ -87,6 +88,8 @@ func (r *Repository) ListByFeed(ctx context.Context, feedID int64, limit, offset
 		       title,
 		       content,
 		       published_at,
+		       is_read,
+		       is_starred,
 		       created_at,
 		       updated_at
 		FROM articles
@@ -112,6 +115,8 @@ func (r *Repository) ListByFeed(ctx context.Context, feedID int64, limit, offset
 			&a.Title,
 			&a.Content,
 			&a.PublishedAt,
+			&a.IsRead,
+			&a.IsStared,
 			&a.CreatedAt,
 			&a.UpdatedAt,
 		)
@@ -137,6 +142,8 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Article, error) {
 		       title,
 		       content,
 		       published_at,
+		       is_read,
+		       is_starred,
 		       created_at,
 		       updated_at
 		FROM articles
@@ -152,6 +159,8 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Article, error) {
 		&a.Title,
 		&a.Content,
 		&a.PublishedAt,
+		&a.IsRead,
+		&a.IsStared,
 		&a.CreatedAt,
 		&a.UpdatedAt,
 	)
@@ -163,4 +172,71 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Article, error) {
 	}
 
 	return &a, nil
+}
+
+func (r *Repository) UpdateStatus(ctx context.Context, id int64, isRead, isStarred *bool) (*Article, error) {
+	var setClauses []string
+	var args []any
+
+	if isRead != nil {
+		setClauses = append(setClauses, "is_read = ?")
+		val := 0
+		if *isRead {
+			val = 1
+		}
+		args = append(args, val)
+	}
+
+	if isStarred != nil {
+		setClauses = append(setClauses, "is_starred = ?")
+		val := 0
+		if *isStarred {
+			val = 1
+		}
+		args = append(args, val)
+	}
+
+	if len(setClauses) == 0 {
+		return r.GetByID(ctx, id)
+	}
+
+	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, id)
+
+	query := fmt.Sprintf(`
+		UPDATE articles
+		SET %s
+		WHERE id = ?;
+	`, strings.Join(setClauses, ", "))
+
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("update article status: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+
+	return r.GetByID(ctx, id)
+}
+
+func (r *Repository) MarkFeedAsRead(ctx context.Context, feedID int64) error {
+	query := `
+		UPDATE articles
+		SET is_read = 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE feed_id = ? AND is_read = 0;
+	`
+
+	_, err := r.db.ExecContext(ctx, query, feedID)
+	if err != nil {
+		return fmt.Errorf("mark feed as read: %w", err)
+	}
+
+	return nil
 }
