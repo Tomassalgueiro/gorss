@@ -3,28 +3,40 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"html/template"
+	"io/fs"
+	"log"
 	"net/http"
 	"strconv"
-	"log"
 	"strings"
+	"fmt"
+	"html"
 
 	"github.com/Tomassalgueiro/gorss/internal/article"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
-	"github.com/Tomassalgueiro/gorss/internal/parser"
 	"github.com/Tomassalgueiro/gorss/internal/opml"
+	"github.com/Tomassalgueiro/gorss/internal/parser"
+	"github.com/Tomassalgueiro/gorss/internal/web"
 )
 
 type Handler struct {
 	feedRepo *feed.Repository
 	articleRepo *article.Repository
 	fetcher *parser.Fetcher
+	tmpl *template.Template
 }
 
 func NewHandler(feedRepo *feed.Repository, articleRepo *article.Repository, fetcher *parser.Fetcher) *Handler {
+	tmpl, err := template.ParseFS(web.Files, "templates/*.html")
+	if err != nil {
+		log.Fatalf("failed to parse templates: %v", err)
+	}
+
 	return &Handler{
 		feedRepo: feedRepo,
 		articleRepo: articleRepo,
 		fetcher: fetcher,
+		tmpl: tmpl,
 	}
 }
 
@@ -37,23 +49,35 @@ type createFeedRequest struct {
 	FeedURL string `json:"feed_url"`
 }
 
-func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
-	var req createFeedRequest
+func (h *Handler) createFeed(w http.ResponseWriter, r *http.Request) {
+	var feedURL string
 
-	if err := ReadJSON(r, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
+	contentType := r.Header.Get("Content-Type")
+
+	if strings.Contains(contentType, "application/json") {
+		var req createFeedRequest
+		if err := ReadJSON(r, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		feedURL = req.FeedURL
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form data", http.StatusBadRequest)
+			return
+		}
+		feedURL = r.FormValue("feed_url")
 	}
 
-	req.FeedURL = strings.TrimSpace(req.FeedURL)
-	if req.FeedURL == "" {
+	feedURL = strings.TrimSpace(feedURL)
+	if feedURL == "" {
 		http.Error(w, "feed_url is required", http.StatusBadRequest)
 		return
 	}
 
-	resp, err := h.fetcher.Fetch(r.Context(), req.FeedURL, "", "")
+	resp, err := h.fetcher.Fetch(r.Context(), feedURL, "", "")
 	if err != nil {
-		log.Printf("fetch feed failed for %s: %v", req.FeedURL, err)
+		log.Printf("fetch feed failed for %s: %v", feedURL, err)
 		http.Error(w, "failed to reach remote feed URL", http.StatusBadGateway)
 		return
 	}
@@ -65,21 +89,20 @@ func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 
 	parsed, err := parser.Parse(resp.Body)
 	if err != nil {
-		http.Error(w, "invalid feed format"+err.Error(), http.StatusUnprocessableEntity)
+		http.Error(w, "invalid feed format: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	log.Printf("[DEBUG] Parsed title: %q, total items found: %d", parsed.Title, len(parsed.Items))
 
 	f := &feed.Feed{
-		FeedURL: req.FeedURL,
-		SiteURL: parsed.SiteURL,
-		Title: parsed.Title,
-		ETag: resp.ETag,
+		FeedURL:      feedURL,
+		SiteURL:      parsed.SiteURL,
+		Title:        parsed.Title,
+		ETag:         resp.ETag,
 		LastModified: resp.LastModified,
 	}
 
 	if err := h.feedRepo.CreateFeed(r.Context(), f); err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") { 
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			http.Error(w, "feed already exists", http.StatusConflict)
 			return
 		}
@@ -91,25 +114,28 @@ func (h* Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 		articles := make([]article.Article, 0, len(parsed.Items))
 		for _, item := range parsed.Items {
 			articles = append(articles, article.Article{
-				FeedID: f.ID,
-				GUID: item.GUID,
-				URL: item.URL,
-				Title: item.Title,
-				Content: item.Content,
+				FeedID:      f.ID,
+				GUID:        item.GUID,
+				URL:         item.URL,
+				Title:       item.Title,
+				Content:     item.Content,
 				PublishedAt: item.PublishedAt,
 			})
 		}
-
-		if err := h.articleRepo.CreateArticles(r.Context(), articles); err != nil {
-			log.Printf("failed to save articles for feed %d: %v", f.ID, err)	
-		} else {
-			log.Printf("[DEBUG] Saved %d aricles for feed %d", len(articles), f.ID)
-		}
-	} else {
-		log.Printf("[WARN] parsed.Items was empty for %s", req.FeedURL)
+		_ = h.articleRepo.CreateArticles(r.Context(), articles)
 	}
 
-	WriteJSON(w, http.StatusCreated, f)
+	if strings.Contains(contentType, "application/json") {
+		WriteJSON(w, http.StatusCreated, f)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusCreated)
+	fmt.Fprintf(w, `<li class="feed-item" id="feed-%d">
+		<a href="/feeds/%d" hx-get="/articles-fragment?feed_id=%d" hx-target="#article-stream">%s</a>
+		<button class="btn-sm" hx-delete="/v1/feeds/%d" hx-target="#feed-%d" hx-swap="outerHTML">×</button>
+	</li>`, f.ID, f.ID, f.ID, html.EscapeString(f.Title), f.ID, f.ID)
 }
 
 func (h* Handler) listFeeds(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +233,14 @@ func ReadJSON (r *http.Request, dst any) error {
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	staticFS, err := fs.Sub(web.Files, "static")
+	if err != nil {
+		log.Fatalf("failed to create static sub-fs: %v", err)
+	}
+	mux.Handle("GET /static/", http.StripPrefix("/static", http.FileServer(http.FS(staticFS))))
+
+	mux.HandleFunc("GET /{$}", h.renderIndex)
+	mux.HandleFunc("GET /articles-fragment", h.renderArticlesFragment)
 
 	mux.HandleFunc("GET /v1/feeds", h.listFeeds)
 	mux.HandleFunc("GET /v1/feeds/{id}", h.getFeed)
@@ -392,4 +426,54 @@ func (h *Handler) importOPML(w http.ResponseWriter, r *http.Request) {
 		Created:     created,
 		Skipped:     skipped,
 	})
+}
+
+type indexViewData struct {
+	Feeds    []*feed.Feed
+	Articles []*article.Article
+}
+
+func (h *Handler) renderIndex(w http.ResponseWriter, r *http.Request) {
+	feeds, err := h.feedRepo.ListFeeds(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load feeds", http.StatusInternalServerError)
+		return
+	}
+
+	articles, err := h.articleRepo.ListAll(r.Context(), article.ListFilter{Limit: 50})
+	if err != nil {
+		http.Error(w, "failed to load articles", http.StatusInternalServerError)
+		return
+	}
+
+	data := indexViewData{
+		Feeds:    feeds,
+		Articles: articles,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "base.html", data); err != nil {
+		log.Printf("render index error: %v", err)
+	}
+}
+
+func (h *Handler) renderArticlesFragment(w http.ResponseWriter, r *http.Request) {
+	filter := article.ListFilter{Limit: 50}
+
+	if feedIDStr := r.URL.Query().Get("feed_id"); feedIDStr != "" {
+		if id, err := strconv.ParseInt(feedIDStr, 10, 64); err == nil {
+			filter.FeedID = &id
+		}
+	}
+
+	articles, err := h.articleRepo.ListAll(r.Context(), filter)
+	if err != nil {
+		http.Error(w, "failed to load articles", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "articles", articles); err != nil {
+		log.Printf("render articles fragment error: %v", err)
+	}
 }
