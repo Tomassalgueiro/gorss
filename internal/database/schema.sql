@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS articles (
 	title TEXT NOT NULL,
 	content TEXT NOT NULL DEFAULT '',
 	published_at DATETIME,
+	is_read BOOLEAN NOT NULL DEFAULT 0,
+	is_starred BOOLEAN NOT NULL DEFAULT 0,
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	UNIQUE(feed_id, guid)
@@ -27,3 +29,4 @@ CREATE TABLE IF NOT EXISTS articles (
 
 CREATE INDEX IF NOT EXISTS idx_articles_feed_id on articles(feed_id);
 CREATE INDEX IF NOT EXISTS idx_articles_published_at on articles(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_unread on articles(feed_id, is_read);
