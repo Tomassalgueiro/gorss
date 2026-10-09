@@ -1,0 +1,41 @@
+FROM golang:1.24-alpine AS builder
+
+# Install build tools for CGO if using mattn/go-sqlite3
+RUN apk add --no-cache gcc musl-dev
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build a statically linked binary
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w -extldflags '-static'" -o /bin/gorss ./cmd/server/main.go
+
+
+
+
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+# Non-root user for security
+RUN addgroup -S gorss && adduser -S gorss -G gorss
+
+WORKDIR /data
+RUN chown -R gorss:gorss /data
+
+USER gorss
+
+COPY --from=builder /bin/gorss /usr/local/bin/gorss
+
+# Directory for SQLite database mount
+VOLUME ["/data"]
+
+EXPOSE 6060
+
+ENV PORT=6060 \
+    DATABASE_URL=/data/gorss.db
+
+ENTRYPOINT ["/usr/local/bin/gorss"]
