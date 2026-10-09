@@ -14,6 +14,14 @@ type Repository struct {
 	db *sql.DB
 }
 
+type ListFilter struct {
+	FeedID *int64
+	UnreadOnly bool
+	StarredOnly bool
+	Limit int
+	Offset int
+}
+
 func NewReposiroty(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
@@ -116,7 +124,7 @@ func (r *Repository) ListByFeed(ctx context.Context, feedID int64, limit, offset
 			&a.Content,
 			&a.PublishedAt,
 			&a.IsRead,
-			&a.IsStared,
+			&a.IsStarred,
 			&a.CreatedAt,
 			&a.UpdatedAt,
 		)
@@ -160,7 +168,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*Article, error) {
 		&a.Content,
 		&a.PublishedAt,
 		&a.IsRead,
-		&a.IsStared,
+		&a.IsStarred,
 		&a.CreatedAt,
 		&a.UpdatedAt,
 	)
@@ -239,4 +247,95 @@ func (r *Repository) MarkFeedAsRead(ctx context.Context, feedID int64) error {
 	}
 
 	return nil
+}
+
+func (r *Repository) ListAll(ctx context.Context, filter ListFilter) ([]*Article, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 100 {
+		filter.Limit = 100
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+
+	var whereClauses []string
+	var args []any
+
+	if filter.FeedID != nil {
+		whereClauses = append(whereClauses, "feed_id = ?")
+		args = append(args, *filter.FeedID)
+	}
+
+	if filter.UnreadOnly {
+		whereClauses = append(whereClauses, "is_read = 0")
+	}
+
+	if filter.StarredOnly {
+		whereClauses = append(whereClauses, "is_starred = 1")
+	}
+
+	whereSQL := ""
+	if len(whereClauses) > 0 {
+		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id,
+		       feed_id,
+		       guid,
+		       url,
+		       title,
+		       content,
+		       published_at,
+		       is_read,
+		       is_starred,
+		       created_at,
+		       updated_at
+		FROM articles
+		%s
+		ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+		LIMIT ? OFFSET ?;
+	`, whereSQL)
+
+	args = append(args, filter.Limit, filter.Offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list articles: %w", err)
+	}
+	defer rows.Close()
+
+	var articles []*Article
+	for rows.Next() {
+		var a Article
+		err := rows.Scan(
+			&a.ID,
+			&a.FeedID,
+			&a.GUID,
+			&a.URL,
+			&a.Title,
+			&a.Content,
+			&a.PublishedAt,
+			&a.IsRead,
+			&a.IsStarred,
+			&a.CreatedAt,
+			&a.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan article: %w", err)
+		}
+		articles = append(articles, &a)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate articles: %w", err)
+	}
+
+	if articles == nil {
+		articles = []*Article{}
+	}
+
+	return articles, nil
 }

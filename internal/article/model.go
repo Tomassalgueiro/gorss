@@ -11,7 +11,7 @@ type Article struct {
 	    Content     string     `json:"content"`
 	    PublishedAt *time.Time `json:"published_at"`
 	    IsRead	bool	   `json:"is_read"`
-	    IsStared	bool	   `json:"is_starred"`
+	    IsStarred	bool	   `json:"is_starred"`
 	    CreatedAt   time.Time  `json:"created_at"`
 	    UpdatedAt   time.Time  `json:"updated_at"`
 }

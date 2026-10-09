@@ -210,9 +210,11 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/feeds", h.listFeeds)
 	mux.HandleFunc("GET /v1/feeds/{id}", h.getFeed)
 	mux.HandleFunc("GET /v1/feeds/{id}/articles", h.listFeedArticles)
+	mux.HandleFunc("GET /v1/articles", h.listArticles)
 	mux.HandleFunc("POST /v1/feeds", h.createFeed)
 	mux.HandleFunc("POST /v1/articles/{id}/mark-all-read", h.markFeedAsRead)
 	mux.HandleFunc("PATCH /v1/articles/{id}", h.updateArticle)
+	mux.HandleFunc("DELETE /v1/feeds/{id}", h.deleteFeed)
 
 	return mux
 }
@@ -268,6 +270,56 @@ func (h *Handler) markFeedAsRead(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.articleRepo.MarkFeedAsRead(r.Context(), id); err != nil {
 		http.Error(w, "failed to mark feed articles as read", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) listArticles(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	filter := article.ListFilter{
+		UnreadOnly:  q.Get("unread") == "true" || q.Get("unread") == "1",
+		StarredOnly: q.Get("starred") == "true" || q.Get("starred") == "1",
+		Limit:       50,
+		Offset:      0,
+	}
+
+	if l := q.Get("limit"); l != "" {
+		if parsedLimit, err := strconv.Atoi(l); err == nil && parsedLimit > 0 {
+			filter.Limit = parsedLimit
+		}
+	}
+	if o := q.Get("offset"); o != "" {
+		if parsedOffset, err := strconv.Atoi(o); err == nil && parsedOffset >= 0 {
+			filter.Offset = parsedOffset
+		}
+	}
+
+	articles, err := h.articleRepo.ListAll(r.Context(), filter)
+	if err != nil {
+		http.Error(w, "failed to list articles", http.StatusInternalServerError)
+		return
+	}
+
+	WriteJSON(w, http.StatusOK, articles)
+}
+
+func (h *Handler) deleteFeed(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid feed id", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.feedRepo.DeleteFeed(r.Context(), id); err != nil {
+		if errors.Is(err, feed.ErrNotFound) {
+			http.Error(w, "feed not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to delete feed", http.StatusInternalServerError)
 		return
 	}
 

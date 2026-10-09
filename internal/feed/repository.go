@@ -212,3 +212,20 @@ func (r *Repository) UpdateFeedFetchStatus(ctx context.Context, id int64, etag, 
 
 	return nil
 }
+
+func (r *Repository) DeleteFeed(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM feeds WHERE id = ?;", id)
+	if err != nil {
+		return fmt.Errorf("delete feed: %w", err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
