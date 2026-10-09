@@ -16,6 +16,7 @@ import (
 	"github.com/Tomassalgueiro/gorss/internal/feed"
 	"github.com/Tomassalgueiro/gorss/internal/parser"
 	"github.com/Tomassalgueiro/gorss/internal/server"
+	"github.com/Tomassalgueiro/gorss/internal/worker"
 )
 
 func main() {
@@ -34,10 +35,10 @@ func main() {
 	}
 	defer db.Close()
 
-	repo := feed.NewRepository(db)
+	feedRepo := feed.NewRepository(db)
 	articleRepo := article.NewReposiroty(db)
 	fetcher := parser.NewFetcher()
-	h := server.NewHandler(repo, articleRepo, fetcher)
+	h := server.NewHandler(feedRepo, articleRepo, fetcher)
 	mux := h.Routes()
 
 	log.Println("Service starting...")
@@ -50,7 +51,12 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout: 120 * time.Second,
 	}
+
+	pollInterval := 5 * time.Minute
+	refreshWorker := worker.New(feedRepo, articleRepo, fetcher, pollInterval, 20)
 	
+	go refreshWorker.Start(ctx)
+
 	go func() {
 	    if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("HTTP server error: %v", err)
