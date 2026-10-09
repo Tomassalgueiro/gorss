@@ -11,6 +11,7 @@ import (
 	"github.com/Tomassalgueiro/gorss/internal/article"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
 	"github.com/Tomassalgueiro/gorss/internal/parser"
+	"github.com/Tomassalgueiro/gorss/internal/opml"
 )
 
 type Handler struct {
@@ -211,8 +212,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/feeds/{id}", h.getFeed)
 	mux.HandleFunc("GET /v1/feeds/{id}/articles", h.listFeedArticles)
 	mux.HandleFunc("GET /v1/articles", h.listArticles)
+	mux.HandleFunc("GET /v1/opml/export", h.exportOPML)
 	mux.HandleFunc("POST /v1/feeds", h.createFeed)
 	mux.HandleFunc("POST /v1/articles/{id}/mark-all-read", h.markFeedAsRead)
+	mux.HandleFunc("POST /v1/opml/import", h.importOPML)
 	mux.HandleFunc("PATCH /v1/articles/{id}", h.updateArticle)
 	mux.HandleFunc("DELETE /v1/feeds/{id}", h.deleteFeed)
 
@@ -324,4 +327,69 @@ func (h *Handler) deleteFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) exportOPML(w http.ResponseWriter, r *http.Request) {
+	feeds, err := h.feedRepo.ListFeeds(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load feeds", http.StatusInternalServerError)
+		return
+	}
+
+	items := make([]opml.FeedItem, 0, len(feeds))
+	for _, f := range feeds {
+		items = append(items, opml.FeedItem{
+			Title:   f.Title,
+			FeedURL: f.FeedURL,
+			SiteURL: f.SiteURL,
+		})
+	}
+
+	data, err := opml.Generate("GoRSS Subscriptions", items)
+	if err != nil {
+		http.Error(w, "failed to generate opml", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"subscriptions.opml\"")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+type opmlImportResponse struct {
+	TotalParsed int `json:"total_parsed"`
+	Created     int `json:"created"`
+	Skipped     int `json:"skipped"`
+}
+
+func (h *Handler) importOPML(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024)
+
+	urls, err := opml.Parse(r.Body)
+	if err != nil {
+		http.Error(w, "invalid opml file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var created, skipped int
+	for _, rawURL := range urls {
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			continue
+		}
+
+		f := &feed.Feed{FeedURL: rawURL}
+		if err := h.feedRepo.CreateFeed(r.Context(), f); err != nil {
+			skipped++
+			continue
+		}
+		created++
+	}
+
+	WriteJSON(w, http.StatusOK, opmlImportResponse{
+		TotalParsed: len(urls),
+		Created:     created,
+		Skipped:     skipped,
+	})
 }
