@@ -1,0 +1,12 @@
+services:
+  gorss:
+    build: .
+    container_name: gorss
+    restart: unless-stopped
+    ports:
+      - "6060:6060"
+    environment:
+      - PORT=6060
+      - DATABASE_URL=/data/gorss.db
+    volumes:
+      - ./data:/data
