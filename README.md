@@ -15,6 +15,8 @@ A self-hosted RSS/Atom reader written in Go with an embedded web UI. Built for z
 
 ## Preview
 
+![](assets-for-readme/preview.png)
+
 
 ## Dependencies
 
