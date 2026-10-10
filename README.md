@@ -13,6 +13,9 @@ A self-hosted RSS/Atom reader written in Go with an embedded web UI. Built for z
 - **OPML Support**: Export and import your feed list for compatibility with NetNewsWire, Reeder, Feedly, and Miniflux.
 - **JSON REST API**: Full programmatic access to feeds and articles.
 
+## Preview
+
+
 ## Dependencies
 
 - Go 1.22+ (if running natively)
@@ -57,6 +60,7 @@ docker compose up -d
 docker compose logs -f gorss 
 ```
 
+**Stop runing the container**:
 ```bash
 docker compose down
 ```
