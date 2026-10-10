@@ -45,22 +45,22 @@ func main() {
 	log.Printf("listening on port: %s\ndburl: %s", cfg.ServerPort, cfg.DatabaseURL)
 
 	srv := &http.Server{
-		Addr: ":" + cfg.ServerPort, 
-		Handler: mux,
-		ReadTimeout: 5 * time.Second, 
+		Addr:         ":" + cfg.ServerPort,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
-		IdleTimeout: 120 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	pollInterval := 5 * time.Minute
 	refreshWorker := worker.New(feedRepo, articleRepo, fetcher, pollInterval, 20)
-	
+
 	go refreshWorker.Start(ctx)
 
 	go func() {
-	    if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("HTTP server error: %v", err)
-    	    }
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("HTTP server error: %v", err)
+		}
 	}()
 
 	<-ctx.Done()

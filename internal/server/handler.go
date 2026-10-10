@@ -491,9 +491,14 @@ func (h *Handler) renderIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) renderArticlesFragment(w http.ResponseWriter, r *http.Request) {
-	filter := article.ListFilter{Limit: 50}
+	q := r.URL.Query()
+	filter := article.ListFilter{
+		Limit:       50,
+		StarredOnly: q.Get("starred") == "true" || q.Get("starred") == "1",
+		UnreadOnly:  q.Get("unread") == "true" || q.Get("unread") == "1",
+	}
 
-	if feedIDStr := r.URL.Query().Get("feed_id"); feedIDStr != "" {
+	if feedIDStr := q.Get("feed_id"); feedIDStr != "" {
 		if id, err := strconv.ParseInt(feedIDStr, 10, 64); err == nil {
 			filter.FeedID = &id
 		}

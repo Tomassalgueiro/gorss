@@ -18,8 +18,17 @@
     --muted: #9a9a9a;
     --line: #2a2a2a;
     --hover: #1c1c1c;
-  }
+    /* Add to web/static/style.css */
+    }
 }
+
+@media (prefers-color-scheme: dark) {
+	.btn-star.starred {
+		 color: #ffd43b;
+
+	}
+}
+
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -147,7 +156,7 @@ aside {
 
 .btn-remove { font-size: 1.1rem; line-height: 1; padding: 0.2rem 0.5rem; margin-right: 0.2rem; }
 
-.btn-star.starred { color: var(--text); font-weight: 600; }
+.btn-star.starred { color: #eac54f; font-weight: 600; }
 
 /* ---------- Articles ---------- */
 
