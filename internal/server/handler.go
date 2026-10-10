@@ -264,24 +264,52 @@ func (h *Handler) updateArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req updateArticleRequest
-	if err := ReadJSON(r, &req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
+	var isRead, isStarred *bool
+	contentType := r.Header.Get("Content-Type")
+
+	if strings.Contains(contentType, "application/json") {
+		var req updateArticleRequest
+		if err := ReadJSON(r, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		isRead = req.IsRead
+		isStarred = req.IsStarred
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form data", http.StatusBadRequest)
+			return
+		}
+		if val := r.FormValue("is_read"); val != "" {
+			b := val == "true" || val == "1"
+			isRead = &b
+		}
+		if val := r.FormValue("is_starred"); val != "" {
+			b := val == "true" || val == "1"
+			isStarred = &b
+		}
 	}
 
-	if req.IsRead == nil && req.IsStarred == nil {
+	if isRead == nil && isStarred == nil {
 		http.Error(w, "at least one of is_read or is_starred must be provided", http.StatusBadRequest)
 		return
 	}
 
-	updated, err := h.articleRepo.UpdateStatus(r.Context(), id, req.IsRead, req.IsStarred)
+	updated, err := h.articleRepo.UpdateStatus(r.Context(), id, isRead, isStarred)
 	if err != nil {
 		if errors.Is(err, article.ErrNotFound) {
 			http.Error(w, "article not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to update article", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := h.tmpl.ExecuteTemplate(w, "article-card", updated); err != nil {
+			log.Printf("render article card error: %v", err)
+		}
 		return
 	}
 
@@ -357,6 +385,11 @@ func (h *Handler) deleteFeed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, "failed to delete feed", http.StatusInternalServerError)
+		return
+	}
+
+	if r.Header.Get("HX-Request") == "true" {
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
