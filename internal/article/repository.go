@@ -16,6 +16,7 @@ type Repository struct {
 
 type ListFilter struct {
 	FeedID *int64
+	FolderID *int64
 	UnreadOnly bool
 	StarredOnly bool
 	Limit int
@@ -266,6 +267,11 @@ func (r *Repository) ListAll(ctx context.Context, filter ListFilter) ([]*Article
 	if filter.FeedID != nil {
 		whereClauses = append(whereClauses, "feed_id = ?")
 		args = append(args, *filter.FeedID)
+	}
+
+	if filter.FolderID != nil {
+		whereClauses = append(whereClauses, "feed_id IN (SELECT id FROM feeds WHERE folder_id = ?)")
+		args = append(args, *filter.FolderID)
 	}
 
 	if filter.UnreadOnly {

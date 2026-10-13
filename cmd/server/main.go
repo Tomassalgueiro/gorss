@@ -14,6 +14,7 @@ import (
 	"github.com/Tomassalgueiro/gorss/internal/config"
 	"github.com/Tomassalgueiro/gorss/internal/database"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
+	"github.com/Tomassalgueiro/gorss/internal/folder"
 	"github.com/Tomassalgueiro/gorss/internal/parser"
 	"github.com/Tomassalgueiro/gorss/internal/server"
 	"github.com/Tomassalgueiro/gorss/internal/worker"
@@ -36,9 +37,10 @@ func main() {
 	defer db.Close()
 
 	feedRepo := feed.NewRepository(db)
+	folderRepo := folder.NewRepository(db)
 	articleRepo := article.NewReposiroty(db)
 	fetcher := parser.NewFetcher()
-	h := server.NewHandler(feedRepo, articleRepo, fetcher)
+	h := server.NewHandler(feedRepo, folderRepo, articleRepo, fetcher)
 	mux := h.Routes()
 
 	log.Println("Service starting...")

@@ -9,11 +9,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"fmt"
-	"html"
 
 	"github.com/Tomassalgueiro/gorss/internal/article"
 	"github.com/Tomassalgueiro/gorss/internal/feed"
+	"github.com/Tomassalgueiro/gorss/internal/folder"
 	"github.com/Tomassalgueiro/gorss/internal/opml"
 	"github.com/Tomassalgueiro/gorss/internal/parser"
 	"github.com/Tomassalgueiro/gorss/internal/web"
@@ -21,12 +20,13 @@ import (
 
 type Handler struct {
 	feedRepo *feed.Repository
+	folderRepo *folder.Repository
 	articleRepo *article.Repository
 	fetcher *parser.Fetcher
 	tmpl *template.Template
 }
 
-func NewHandler(feedRepo *feed.Repository, articleRepo *article.Repository, fetcher *parser.Fetcher) *Handler {
+func NewHandler(feedRepo *feed.Repository, folderRepo *folder.Repository, articleRepo *article.Repository, fetcher *parser.Fetcher) *Handler {
 	tmpl, err := template.ParseFS(web.Files, "templates/*.html")
 	if err != nil {
 		log.Fatalf("failed to parse templates: %v", err)
@@ -34,6 +34,7 @@ func NewHandler(feedRepo *feed.Repository, articleRepo *article.Repository, fetc
 
 	return &Handler{
 		feedRepo: feedRepo,
+		folderRepo: folderRepo,
 		articleRepo: articleRepo,
 		fetcher: fetcher,
 		tmpl: tmpl,
@@ -47,6 +48,18 @@ type updateArticleRequest struct {
 
 type createFeedRequest struct {
 	FeedURL string `json:"feed_url"`
+}
+
+type updateFeedRequest struct {
+	FolderID *int64 `json:"folder_id"`
+}
+
+type createFolderRequest struct {
+	Name string `json:"name"`
+}
+
+func isHTMX(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
 }
 
 func (h *Handler) createFeed(w http.ResponseWriter, r *http.Request) {
@@ -130,12 +143,156 @@ func (h *Handler) createFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, `<li class="feed-item" id="feed-%d">
-		<a href="/feeds/%d" hx-get="/articles-fragment?feed_id=%d" hx-target="#article-stream">%s</a>
-		<button class="btn-sm" hx-delete="/v1/feeds/%d" hx-target="#feed-%d" hx-swap="outerHTML">×</button>
-	</li>`, f.ID, f.ID, f.ID, html.EscapeString(f.Title), f.ID, f.ID)
+	h.renderFeedList(w, r)
+}
+
+func (h *Handler) updateFeed(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid feed id", http.StatusBadRequest)
+		return
+	}
+
+	var folderID *int64
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		var req updateFeedRequest
+		if err := ReadJSON(r, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		folderID = req.FolderID
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form data", http.StatusBadRequest)
+			return
+		}
+		if v := r.FormValue("folder_id"); v != "" {
+			parsed, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				http.Error(w, "invalid folder id", http.StatusBadRequest)
+				return
+			}
+			folderID = &parsed
+		}
+	}
+
+	if folderID != nil {
+		if _, err := h.folderRepo.GetByID(r.Context(), *folderID); err != nil {
+			if errors.Is(err, folder.ErrNotFound) {
+				http.Error(w, "folder not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to get folder", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := h.feedRepo.SetFolder(r.Context(), id, folderID); err != nil {
+		if errors.Is(err, feed.ErrNotFound) {
+			http.Error(w, "feed not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update feed", http.StatusInternalServerError)
+		return
+	}
+
+	if isHTMX(r) {
+		h.renderFeedList(w, r)
+		return
+	}
+
+	f, err := h.feedRepo.GetFeedByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "failed to get feed", http.StatusInternalServerError)
+		return
+	}
+	WriteJSON(w, http.StatusOK, f)
+}
+
+func (h *Handler) createFolder(w http.ResponseWriter, r *http.Request) {
+	var name string
+
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		var req createFolderRequest
+		if err := ReadJSON(r, &req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		name = req.Name
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form data", http.StatusBadRequest)
+			return
+		}
+		name = r.FormValue("name")
+	}
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	if len(name) > 100 {
+		http.Error(w, "name is too long", http.StatusBadRequest)
+		return
+	}
+
+	f := &folder.Folder{Name: name}
+	if err := h.folderRepo.Create(r.Context(), f); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			http.Error(w, "folder already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to save folder", http.StatusInternalServerError)
+		return
+	}
+
+	if isHTMX(r) {
+		h.renderFeedList(w, r)
+		return
+	}
+
+	WriteJSON(w, http.StatusCreated, f)
+}
+
+func (h *Handler) listFolders(w http.ResponseWriter, r *http.Request) {
+	folders, err := h.folderRepo.List(r.Context())
+	if err != nil {
+		http.Error(w, "failed to list folders", http.StatusInternalServerError)
+		return
+	}
+
+	if folders == nil {
+		folders = []*folder.Folder{}
+	}
+
+	WriteJSON(w, http.StatusOK, folders)
+}
+
+func (h *Handler) deleteFolder(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid folder id", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.folderRepo.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, folder.ErrNotFound) {
+			http.Error(w, "folder not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to delete folder", http.StatusInternalServerError)
+		return
+	}
+
+	if isHTMX(r) {
+		h.renderFeedList(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h* Handler) listFeeds(w http.ResponseWriter, r *http.Request) {
@@ -246,12 +403,16 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("GET /v1/feeds/{id}", h.getFeed)
 	mux.HandleFunc("GET /v1/feeds/{id}/articles", h.listFeedArticles)
 	mux.HandleFunc("GET /v1/articles", h.listArticles)
+	mux.HandleFunc("GET /v1/folders", h.listFolders)
 	mux.HandleFunc("GET /v1/opml/export", h.exportOPML)
 	mux.HandleFunc("POST /v1/feeds", h.createFeed)
+	mux.HandleFunc("POST /v1/folders", h.createFolder)
 	mux.HandleFunc("POST /v1/articles/{id}/mark-all-read", h.markFeedAsRead)
 	mux.HandleFunc("POST /v1/opml/import", h.importOPML)
 	mux.HandleFunc("PATCH /v1/articles/{id}", h.updateArticle)
+	mux.HandleFunc("PATCH /v1/feeds/{id}", h.updateFeed)
 	mux.HandleFunc("DELETE /v1/feeds/{id}", h.deleteFeed)
+	mux.HandleFunc("DELETE /v1/folders/{id}", h.deleteFolder)
 
 	return mux
 }
@@ -354,6 +515,11 @@ func (h *Handler) listArticles(w http.ResponseWriter, r *http.Request) {
 	if l := q.Get("limit"); l != "" {
 		if parsedLimit, err := strconv.Atoi(l); err == nil && parsedLimit > 0 {
 			filter.Limit = parsedLimit
+		}
+	}
+	if fid := q.Get("folder_id"); fid != "" {
+		if id, err := strconv.ParseInt(fid, 10, 64); err == nil {
+			filter.FolderID = &id
 		}
 	}
 	if o := q.Get("offset"); o != "" {
@@ -461,13 +627,74 @@ func (h *Handler) importOPML(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type feedRow struct {
+	Feed    *feed.Feed
+	Folders []*folder.Folder
+}
+
+type folderView struct {
+	Folder *folder.Folder
+	Feeds  []feedRow
+}
+
+type sidebarView struct {
+	Folders []folderView
+	Unfiled []feedRow
+}
+
 type indexViewData struct {
-	Feeds    []*feed.Feed
+	Sidebar  sidebarView
 	Articles []*article.Article
 }
 
-func (h *Handler) renderIndex(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) loadSidebar(r *http.Request) (sidebarView, error) {
+	var view sidebarView
+
+	folders, err := h.folderRepo.List(r.Context())
+	if err != nil {
+		return view, err
+	}
+
 	feeds, err := h.feedRepo.ListFeeds(r.Context())
+	if err != nil {
+		return view, err
+	}
+
+	byID := make(map[int64]int, len(folders))
+	for _, fo := range folders {
+		byID[fo.ID] = len(view.Folders)
+		view.Folders = append(view.Folders, folderView{Folder: fo})
+	}
+
+	for _, f := range feeds {
+		row := feedRow{Feed: f, Folders: folders}
+		if f.FolderID != nil {
+			if i, ok := byID[*f.FolderID]; ok {
+				view.Folders[i].Feeds = append(view.Folders[i].Feeds, row)
+				continue
+			}
+		}
+		view.Unfiled = append(view.Unfiled, row)
+	}
+
+	return view, nil
+}
+
+func (h *Handler) renderFeedList(w http.ResponseWriter, r *http.Request) {
+	view, err := h.loadSidebar(r)
+	if err != nil {
+		http.Error(w, "failed to load feeds", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "feed-list", view); err != nil {
+		log.Printf("render feed list error: %v", err)
+	}
+}
+
+func (h *Handler) renderIndex(w http.ResponseWriter, r *http.Request) {
+	sidebar, err := h.loadSidebar(r)
 	if err != nil {
 		http.Error(w, "failed to load feeds", http.StatusInternalServerError)
 		return
@@ -480,7 +707,7 @@ func (h *Handler) renderIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := indexViewData{
-		Feeds:    feeds,
+		Sidebar:  sidebar,
 		Articles: articles,
 	}
 
@@ -501,6 +728,12 @@ func (h *Handler) renderArticlesFragment(w http.ResponseWriter, r *http.Request)
 	if feedIDStr := q.Get("feed_id"); feedIDStr != "" {
 		if id, err := strconv.ParseInt(feedIDStr, 10, 64); err == nil {
 			filter.FeedID = &id
+		}
+	}
+
+	if folderIDStr := q.Get("folder_id"); folderIDStr != "" {
+		if id, err := strconv.ParseInt(folderIDStr, 10, 64); err == nil {
+			filter.FolderID = &id
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 
 type Feed struct {
 	ID int64
+	FolderID *int64
 	FeedURL string
 	SiteURL string
 	Title string

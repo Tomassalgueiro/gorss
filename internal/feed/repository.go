@@ -56,7 +56,8 @@ func (r *Repository) CreateFeed(ctx context.Context, f *Feed) error {
 func (r *Repository) GetFeedByID(ctx context.Context, id int64) (*Feed, error) {
 	var f Feed
 	query := `
-		SELECT id, 
+		SELECT id,
+		       folder_id,
 		       feed_url,
 		       site_url,
 		       title,
@@ -71,6 +72,7 @@ func (r *Repository) GetFeedByID(ctx context.Context, id int64) (*Feed, error) {
 	`
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&f.ID,
+		&f.FolderID,
 		&f.FeedURL,
 		&f.SiteURL,
 		&f.Title,
@@ -93,6 +95,7 @@ func (r *Repository) GetFeedByID(ctx context.Context, id int64) (*Feed, error) {
 func (r *Repository) ListFeeds(ctx context.Context) ([]*Feed, error) {
 	query := `
         SELECT id, 
+               folder_id, 
                feed_url, 
                site_url, 
                title, 
@@ -117,6 +120,7 @@ func (r *Repository) ListFeeds(ctx context.Context) ([]*Feed, error) {
 		var f Feed
 		err := rows.Scan(
 		    &f.ID,
+		    &f.FolderID,
 		    &f.FeedURL,
 		    &f.SiteURL,
 		    &f.Title,
@@ -144,7 +148,7 @@ func (r *Repository) GetFeedsToFetch(ctx context.Context, olderThan time.Duratio
 	threshold := time.Now().UTC().Add(-olderThan)
 
 	query := `
-		SELECT id, feed_url, site_url, title, etag, last_modified,
+		SELECT id, folder_id, feed_url, site_url, title, etag, last_modified,
 		       last_fetched_at, last_error, created_at, updated_at
 		FROM feeds
 		WHERE last_fetched_at IS NULL OR last_fetched_at < ?
@@ -163,6 +167,7 @@ func (r *Repository) GetFeedsToFetch(ctx context.Context, olderThan time.Duratio
 		var f Feed
 		err := rows.Scan(
 			&f.ID,
+			&f.FolderID,
 			&f.FeedURL,
 			&f.SiteURL,
 			&f.Title,
@@ -208,6 +213,30 @@ func (r *Repository) UpdateFeedFetchStatus(ctx context.Context, id int64, etag, 
 	_, err := r.db.ExecContext(ctx, query, etag, etag, lastModified, lastModified, now, errStr, id)
 	if err != nil {
 		return fmt.Errorf("update feed fetch status: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) SetFolder(ctx context.Context, id int64, folderID *int64) error {
+	query := `
+		UPDATE feeds
+		SET folder_id = ?,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?;
+	`
+
+	res, err := r.db.ExecContext(ctx, query, folderID, id)
+	if err != nil {
+		return fmt.Errorf("set feed folder: %w", err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
 	}
 
 	return nil
