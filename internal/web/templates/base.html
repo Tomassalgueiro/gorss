@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <title>GoRSS Reader</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&display=swap">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
@@ -17,20 +21,40 @@
       var list = document.getElementById("feed-list");
       if (!list) return;
 
-      function setActive(item) {
+      // Remembered by href so it survives the list being re-rendered.
+      var activeHref = location.pathname;
+
+      function applyActive() {
         list.querySelectorAll(".feed-item.active").forEach(function (el) {
           el.classList.remove("active");
         });
-        if (item) item.classList.add("active");
+        var link = list.querySelector('.feed-item > a[href="' + activeHref + '"]') ||
+                   list.querySelector(".feed-item > a");
+        if (link) link.parentElement.classList.add("active");
+
+        // Only the folder holding the active item shows its feeds.
+        list.querySelectorAll(".folder-group").forEach(function (group) {
+          var open = !!link && group.contains(link);
+          group.classList.toggle("open", open);
+          var folderLink = group.querySelector(".feed-item.folder > a");
+          if (folderLink && group.querySelector(".folder-feeds")) {
+            folderLink.setAttribute("aria-expanded", open ? "true" : "false");
+          }
+        });
       }
 
       list.addEventListener("click", function (e) {
         var link = e.target.closest(".feed-item > a");
-        if (link) setActive(link.parentElement);
+        if (!link) return;
+        activeHref = link.getAttribute("href");
+        applyActive();
       });
 
-      var current = list.querySelector('.feed-item > a[href="' + location.pathname + '"]');
-      setActive(current ? current.parentElement : list.querySelector(".feed-item"));
+      document.body.addEventListener("htmx:afterSwap", function (e) {
+        if (e.detail.target === list) applyActive();
+      });
+
+      applyActive();
     })();
   </script>
 </body>

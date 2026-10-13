@@ -16,34 +16,19 @@
     <a href="/v1/opml/export" class="btn-sm" title="Export your feeds as OPML">Export OPML</a>
   </div>
 
-  <form class="feed-form" hx-post="/v1/feeds" hx-target="#feed-list" hx-swap="beforeend" hx-on::after-request="this.reset()">
+  <form class="feed-form" hx-post="/v1/feeds" hx-target="#feed-list" hx-swap="innerHTML" hx-on::after-request="if (event.detail.successful) this.reset()">
     <input type="url" name="feed_url" placeholder="Paste a feed URL" aria-label="Feed URL" required />
     <button type="submit">Add</button>
   </form>
 
   <ul class="feed-list" id="feed-list">
-    <li class="feed-item active">
-      <a href="/" hx-get="/articles-fragment" hx-target="#article-stream"
-         hx-on::after-request="document.getElementById('nav-toggle').checked = false">All articles</a>
-    </li>
-    <li class="feed-item">
-      <a href="/starred" hx-get="/articles-fragment?starred=true" hx-target="#article-stream"
-         hx-on::after-request="document.getElementById('nav-toggle').checked = false">★ Starred</a>
-    </li>
-    {{ range .Feeds }}
-      <li class="feed-item" id="feed-{{ .ID }}">
-        <a href="/feeds/{{ .ID }}" hx-get="/articles-fragment?feed_id={{ .ID }}" hx-target="#article-stream"
-           hx-on::after-request="document.getElementById('nav-toggle').checked = false">{{ .Title }}</a>
-        <button class="btn-sm btn-remove"
-                aria-label="Unsubscribe from {{ .Title }}"
-                title="Unsubscribe"
-                hx-delete="/v1/feeds/{{ .ID }}"
-                hx-confirm="Unsubscribe from this feed?"
-                hx-target="#feed-{{ .ID }}"
-                hx-swap="outerHTML">×</button>
-      </li>
-    {{ end }}
+    {{ template "feed-list" .Sidebar }}
   </ul>
+
+  <form class="feed-form folder-form" hx-post="/v1/folders" hx-target="#feed-list" hx-swap="innerHTML" hx-on::after-request="if (event.detail.successful) this.reset()">
+    <input type="text" name="name" placeholder="New folder" aria-label="Folder name" maxlength="100" required />
+    <button type="submit">Create</button>
+  </form>
 </aside>
 
 <main>
@@ -51,6 +36,65 @@
     {{ template "articles" .Articles }}
   </div>
 </main>
+{{ end }}
+
+{{ define "feed-list" }}
+  <li class="feed-item">
+    <a href="/" hx-get="/articles-fragment" hx-target="#article-stream"
+       hx-on::after-request="document.getElementById('nav-toggle').checked = false">All articles</a>
+  </li>
+  <li class="feed-item">
+    <a href="/starred" hx-get="/articles-fragment?starred=true" hx-target="#article-stream"
+       hx-on::after-request="document.getElementById('nav-toggle').checked = false">★ Starred</a>
+  </li>
+  {{ range .Folders }}
+    <li class="folder-group" id="folder-{{ .Folder.ID }}">
+      <div class="feed-item folder">
+        <a href="/folders/{{ .Folder.ID }}" hx-get="/articles-fragment?folder_id={{ .Folder.ID }}" hx-target="#article-stream"
+           hx-on::after-request="document.getElementById('nav-toggle').checked = false">{{ .Folder.Name }}{{ if .Feeds }} <span class="folder-count">{{ len .Feeds }}</span>{{ end }}</a>
+        <button class="btn-sm btn-remove"
+                aria-label="Delete folder {{ .Folder.Name }}"
+                title="Delete folder (feeds are kept)"
+                hx-delete="/v1/folders/{{ .Folder.ID }}"
+                hx-confirm="Delete this folder? Its feeds will be kept."
+                hx-target="#feed-list"
+                hx-swap="innerHTML">×</button>
+      </div>
+      {{ if .Feeds }}
+        <ul class="folder-feeds">
+          {{ range .Feeds }}{{ template "feed-row" . }}{{ end }}
+        </ul>
+      {{ end }}
+    </li>
+  {{ end }}
+  {{ range .Unfiled }}{{ template "feed-row" . }}{{ end }}
+{{ end }}
+
+{{ define "feed-row" }}
+  <li class="feed-item" id="feed-{{ .Feed.ID }}">
+    <a href="/feeds/{{ .Feed.ID }}" hx-get="/articles-fragment?feed_id={{ .Feed.ID }}" hx-target="#article-stream"
+       hx-on::after-request="document.getElementById('nav-toggle').checked = false">{{ .Feed.Title }}</a>
+    {{ if .Folders }}
+      <select class="btn-sm btn-move" name="folder_id"
+              aria-label="Move {{ .Feed.Title }} to a folder"
+              title="Move to folder"
+              hx-patch="/v1/feeds/{{ .Feed.ID }}"
+              hx-trigger="change"
+              hx-target="#feed-list"
+              hx-swap="innerHTML">
+        <option value="" disabled selected hidden>Move</option>
+        {{ if .Feed.FolderID }}<option value="">No folder</option>{{ end }}
+        {{ range .Folders }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}
+      </select>
+    {{ end }}
+    <button class="btn-sm btn-remove"
+            aria-label="Unsubscribe from {{ .Feed.Title }}"
+            title="Unsubscribe"
+            hx-delete="/v1/feeds/{{ .Feed.ID }}"
+            hx-confirm="Unsubscribe from this feed?"
+            hx-target="#feed-{{ .Feed.ID }}"
+            hx-swap="outerHTML">×</button>
+  </li>
 {{ end }}
 
 {{ define "articles" }}
