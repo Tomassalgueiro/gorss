@@ -7,10 +7,7 @@
   --line: #ebe7df;
   --hover: #f2efe8;
   --accent: #9a5b2e;
-<<<<<<< Updated upstream
   --star: #eac54f;
-=======
->>>>>>> Stashed changes
 
   --serif: "Literata", "Iowan Old Style", "Charter", "Georgia", "Cambria", serif;
 }
@@ -23,10 +20,7 @@
     --line: #2b2925;
     --hover: #201f1c;
     --accent: #d39a6a;
-<<<<<<< Updated upstream
     --star: #ffd43b;
-=======
->>>>>>> Stashed changes
   }
 }
 
@@ -205,11 +199,7 @@ aside {
 
 .btn-remove { font-size: 1rem; line-height: 1; padding: 0.2rem 0.5rem; margin-right: 0.2rem; }
 
-<<<<<<< Updated upstream
 .btn-star.starred { color: var(--star); font-weight: 600; }
-=======
-.btn-star.starred { color: var(--accent); }
->>>>>>> Stashed changes
 
 /* ---------- Articles ---------- */
 

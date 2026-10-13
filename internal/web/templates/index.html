@@ -43,13 +43,10 @@
     <a href="/" hx-get="/articles-fragment" hx-target="#article-stream"
        hx-on::after-request="document.getElementById('nav-toggle').checked = false">All articles</a>
   </li>
-<<<<<<< Updated upstream
   <li class="feed-item">
     <a href="/starred" hx-get="/articles-fragment?starred=true" hx-target="#article-stream"
        hx-on::after-request="document.getElementById('nav-toggle').checked = false">★ Starred</a>
   </li>
-=======
->>>>>>> Stashed changes
   {{ range .Folders }}
     <li class="folder-group" id="folder-{{ .Folder.ID }}">
       <div class="feed-item folder">
