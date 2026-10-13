@@ -731,7 +731,11 @@ func (h *Handler) renderArticlesFragment(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+<<<<<<< Updated upstream
 	if folderIDStr := q.Get("folder_id"); folderIDStr != "" {
+=======
+	if folderIDStr := r.URL.Query().Get("folder_id"); folderIDStr != "" {
+>>>>>>> Stashed changes
 		if id, err := strconv.ParseInt(folderIDStr, 10, 64); err == nil {
 			filter.FolderID = &id
 		}
