@@ -22,9 +22,13 @@
   </form>
 
   <ul class="feed-list" id="feed-list">
-    <li class="feed-item">
+    <li class="feed-item active">
       <a href="/" hx-get="/articles-fragment" hx-target="#article-stream"
          hx-on::after-request="document.getElementById('nav-toggle').checked = false">All articles</a>
+    </li>
+    <li class="feed-item">
+      <a href="/starred" hx-get="/articles-fragment?starred=true" hx-target="#article-stream"
+         hx-on::after-request="document.getElementById('nav-toggle').checked = false">★ Starred</a>
     </li>
     {{ range .Feeds }}
       <li class="feed-item" id="feed-{{ .ID }}">
@@ -54,30 +58,34 @@
     <p class="empty">No articles yet. Add a feed to start reading.</p>
   {{ end }}
   {{ range . }}
-    <article class="article-card {{ if .IsRead }}read{{ end }}" id="article-{{ .ID }}">
-      <div class="article-header">
-        <h2><a href="{{ .URL }}" target="_blank" rel="noopener noreferrer">{{ .Title }}</a></h2>
-      </div>
-      <div class="article-meta">
-        {{ if .PublishedAt }}<time datetime="{{ .PublishedAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .PublishedAt.Format "Jan 02, 2006 15:04" }}</time>{{ end }}
-      </div>
-      <div class="article-actions">
-        <button class="btn-sm"
-                hx-patch="/v1/articles/{{ .ID }}"
-                hx-vals='{"is_read": {{ if .IsRead }}false{{ else }}true{{ end }}}'
-                hx-target="#article-{{ .ID }}"
-                hx-swap="outerHTML">
-          {{ if .IsRead }}Mark unread{{ else }}Mark read{{ end }}
-        </button>
-        <button class="btn-sm btn-star {{ if .IsStarred }}starred{{ end }}"
-                aria-pressed="{{ if .IsStarred }}true{{ else }}false{{ end }}"
-                hx-patch="/v1/articles/{{ .ID }}"
-                hx-vals='{"is_starred": {{ if .IsStarred }}false{{ else }}true{{ end }}}'
-                hx-target="#article-{{ .ID }}"
-                hx-swap="outerHTML">
-          {{ if .IsStarred }}★ Starred{{ else }}☆ Star{{ end }}
-        </button>
-      </div>
-    </article>
+    {{ template "article-card" . }}
   {{ end }}
+{{ end }}
+
+{{ define "article-card" }}
+<article class="article-card {{ if .IsRead }}read{{ end }}" id="article-{{ .ID }}">
+  <div class="article-header">
+    <h2><a href="{{ .URL }}" target="_blank" rel="noopener noreferrer">{{ .Title }}</a></h2>
+  </div>
+  <div class="article-meta">
+    {{ if .PublishedAt }}<time datetime="{{ .PublishedAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .PublishedAt.Format "Jan 02, 2006 15:04" }}</time>{{ end }}
+  </div>
+  <div class="article-actions">
+    <button class="btn-sm"
+            hx-patch="/v1/articles/{{ .ID }}"
+            hx-vals='{"is_read": "{{ if .IsRead }}false{{ else }}true{{ end }}"}'
+            hx-target="#article-{{ .ID }}"
+            hx-swap="outerHTML">
+      {{ if .IsRead }}Mark unread{{ else }}Mark read{{ end }}
+    </button>
+    <button class="btn-sm btn-star {{ if .IsStarred }}starred{{ end }}"
+            aria-pressed="{{ if .IsStarred }}true{{ else }}false{{ end }}"
+            hx-patch="/v1/articles/{{ .ID }}"
+            hx-vals='{"is_starred": "{{ if .IsStarred }}false{{ else }}true{{ end }}"}'
+            hx-target="#article-{{ .ID }}"
+            hx-swap="outerHTML">
+      {{ if .IsStarred }}★ Starred{{ else }}☆ Star{{ end }}
+    </button>
+  </div>
+</article>
 {{ end }}
